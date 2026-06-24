@@ -26,8 +26,8 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="grid min-h-dvh place-items-center bg-[var(--background)] px-4 text-[var(--ink)]">
-      <section className="w-full max-w-sm rounded-[8px] border border-[var(--line)] bg-white p-6 shadow-sm">
+    <main className="grid min-h-dvh place-items-center overflow-x-hidden bg-[var(--background)] text-[var(--ink)]">
+      <section className="mx-auto w-[calc(100%-32px)] max-w-sm rounded-[8px] border border-[var(--line)] bg-white p-6 shadow-sm">
         <div className="flex flex-col items-center text-center">
           <Image
             src="/fish-brothers-logo.png"
