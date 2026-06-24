@@ -405,6 +405,15 @@ function parseMonth(value: string) {
   };
 }
 
+function parseDateInput(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return {
+    year,
+    month,
+    day,
+  };
+}
+
 function useFishSalesSnapshot(date = getTodayInputValue()) {
   const [snapshot, setSnapshot] = useState<SalesSnapshot>(fallbackSalesSnapshot);
   const [isLive, setIsLive] = useState(false);
@@ -1266,8 +1275,11 @@ function MonthlySalesView({
     null
   );
   const { year, month: monthNumber } = parseMonth(month);
+  const today = parseDateInput(getTodayInputValue());
   const calendarCells = buildSalesMonthCells(year, monthNumber, days);
   const monthCells = calendarCells.filter((cell) => cell.day != null);
+  const isTodayCell = (cell: SalesCalendarCell) =>
+    cell.day === today.day && monthNumber === today.month && year === today.year;
 
   return (
     <div className="overflow-hidden rounded-[8px] border border-[var(--line)] bg-white p-4 shadow-sm md:p-5">
@@ -1305,7 +1317,11 @@ function MonthlySalesView({
           <button
             key={cell.key}
             onClick={() => setSelectedCell(cell)}
-            className="flex w-full items-center justify-between rounded-[8px] border border-[var(--line)] bg-[#f8fbfc] px-4 py-3 text-left"
+            className={`flex w-full items-center justify-between rounded-[8px] border px-4 py-3 text-left ${
+              isTodayCell(cell)
+                ? "border-[#ffb8c7] bg-[#fff8f9]"
+                : "border-[var(--line)] bg-[#f8fbfc]"
+            }`}
           >
             <div className="flex items-center gap-2">
               <strong
@@ -1320,6 +1336,11 @@ function MonthlySalesView({
               <span className="text-xs font-black text-slate-400">
                 {weekdayLabel(cell.weekday)}
               </span>
+              {isTodayCell(cell) ? (
+                <span className="rounded-full bg-[#ffe2e8] px-2 py-0.5 text-xs font-black text-[#ff3f68]">
+                  오늘
+                </span>
+              ) : null}
             </div>
             <div className="text-right">
               <p className="text-xs font-black text-slate-400">총매출</p>
@@ -1352,19 +1373,28 @@ function MonthlySalesView({
                 onClick={() => setSelectedCell(cell)}
                 key={cell.key}
                 className={`min-h-36 rounded-[8px] border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-md ${
-                  (cell.data?.total ?? 0) > 0
-                    ? "border-[var(--line)] bg-[#f8fbfc]"
-                    : "border-slate-100 bg-white/70"
+                  isTodayCell(cell)
+                    ? "border-[#ffb8c7] bg-[#fff8f9]"
+                    : (cell.data?.total ?? 0) > 0
+                      ? "border-[var(--line)] bg-[#f8fbfc]"
+                      : "border-slate-100 bg-white/70"
                 }`}
               >
-                <div
-                  className={`text-lg font-black ${
-                    cell.weekday === 0 || cell.weekday === 6
-                      ? "text-[#e65f4f]"
-                      : "text-slate-600"
-                  }`}
-                >
-                  {cell.day}
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`text-lg font-black ${
+                      cell.weekday === 0 || cell.weekday === 6
+                        ? "text-[#e65f4f]"
+                        : "text-slate-600"
+                    }`}
+                  >
+                    {cell.day}
+                  </span>
+                  {isTodayCell(cell) ? (
+                    <span className="rounded-full bg-[#ffe2e8] px-2 py-0.5 text-xs font-black text-[#ff3f68]">
+                      오늘
+                    </span>
+                  ) : null}
                 </div>
                 <dl className="mt-4 space-y-1 text-xs font-black">
                   <AmountRow label="총매출" value={cell.data?.total ?? 0} tone="sea" />
