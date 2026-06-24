@@ -208,6 +208,7 @@ type SalesSnapshot = {
   realtime: {
     totalDue: number;
     activeTableCount: number;
+    splitRoomIds: string[];
     tables: TableRealtimeStatus[];
   };
 };
@@ -339,6 +340,7 @@ const fallbackSalesSnapshot: SalesSnapshot = {
   realtime: {
     totalDue: 830000,
     activeTableCount: 5,
+    splitRoomIds: ["r2"],
     tables: [
       { tableNo: "r2-1", amount: 442000, orderCount: 6, elapsedMinutes: 164 },
       { tableNo: "3", amount: 130000, orderCount: 7, elapsedMinutes: 77 },
@@ -620,14 +622,16 @@ function DashboardContent() {
   );
 }
 
-const roomBlocks = [
+const roomGroups = [
   { id: "r1", name: "제주도", tableNos: ["r1-1", "r1-2"] },
   { id: "r2", name: "독도", tableNos: ["r2-1", "r2-2"] },
   { id: "r3", name: "울릉도", tableNos: ["r3-1", "r3-2"] },
   { id: "r4", name: "서해", tableNos: ["r4-1", "r4-2"] },
   { id: "r5", name: "남해", tableNos: ["r5-1", "r5-2"] },
   { id: "r6", name: "동해", tableNos: ["r6-1", "r6-2"] },
-];
+] as const;
+
+const roomNames = Object.fromEntries(roomGroups.map((room) => [room.id, room.name]));
 
 const hallTables = [
   { no: "1", left: 6, top: 2 },
@@ -650,27 +654,14 @@ const hallTables = [
 
 function LiveFloorBoard({ snapshot }: { snapshot: SalesSnapshot }) {
   const tableMap = new Map(snapshot.realtime.tables.map((table) => [table.tableNo, table]));
-  const activeRooms = roomBlocks
-    .map((room) => {
-      const tables = room.tableNos
-        .map((tableNo) => tableMap.get(tableNo))
-        .filter((table): table is TableRealtimeStatus => Boolean(table));
-      const amount = tables.reduce((sum, table) => sum + table.amount, 0);
-      const orderCount = tables.reduce((sum, table) => sum + table.orderCount, 0);
-      const elapsedMinutes = Math.max(...tables.map((table) => table.elapsedMinutes), 0);
-
-      return {
-        id: room.id,
-        name: room.name,
-        amount,
-        orderCount,
-        elapsedMinutes,
-      };
-    })
-    .filter((room) => room.amount > 0);
+  const activeRooms = buildActiveRoomTables(
+    snapshot.realtime.tables,
+    snapshot.realtime.splitRoomIds,
+  );
   const activeHallTables = hallTables
     .map((table) => tableMap.get(table.no))
     .filter((table): table is TableRealtimeStatus => Boolean(table && table.amount > 0));
+  const activeViewCount = activeRooms.length + activeHallTables.length;
 
   return (
     <section className="rounded-[8px] border border-[var(--line)] bg-white p-4 shadow-sm md:p-5">
@@ -685,7 +676,7 @@ function LiveFloorBoard({ snapshot }: { snapshot: SalesSnapshot }) {
         </div>
         <div className="grid grid-cols-2 gap-2 text-sm font-black sm:flex">
           <span className="rounded-[8px] border border-[var(--line)] bg-[#f8fbfc] px-3 py-2 text-slate-600">
-            사용중 {snapshot.realtime.activeTableCount}개
+            사용중 {activeViewCount}개
           </span>
           <span className="rounded-[8px] border border-[var(--line)] bg-[#f8fbfc] px-3 py-2 text-[var(--sea)]">
             미결제 {formatMoney(snapshot.realtime.totalDue)}
@@ -695,13 +686,13 @@ function LiveFloorBoard({ snapshot }: { snapshot: SalesSnapshot }) {
 
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <ActiveTableGroup title="룸" emptyText="이용중인 룸 없음">
-          {activeRooms.map((room) => (
+          {activeRooms.map((table) => (
             <ActiveTableCard
-              key={room.id}
-              name={room.name}
-              amount={room.amount}
-              orderCount={room.orderCount}
-              elapsedMinutes={room.elapsedMinutes}
+              key={table.tableNo}
+              name={table.displayName}
+              amount={table.amount}
+              orderCount={table.orderCount}
+              elapsedMinutes={table.elapsedMinutes}
             />
           ))}
         </ActiveTableGroup>
@@ -720,6 +711,81 @@ function LiveFloorBoard({ snapshot }: { snapshot: SalesSnapshot }) {
       </div>
     </section>
   );
+}
+
+function buildActiveRoomTables(tables: TableRealtimeStatus[], splitRoomIds: string[]) {
+  const tableMap = new Map(tables.map((table) => [table.tableNo, table]));
+  const handled = new Set<string>();
+  const splitRoomIdSet = new Set(splitRoomIds);
+  const rooms = roomGroups.flatMap((room) => {
+    const isSplit = splitRoomIdSet.has(room.id);
+    const legacyBaseTable = tableMap.get(room.id);
+    const sectionTables = room.tableNos.map((tableNo) => tableMap.get(tableNo));
+
+    handled.add(room.id);
+    room.tableNos.forEach((tableNo) => handled.add(tableNo));
+
+    if (!isSplit) {
+      const targets = [legacyBaseTable, ...sectionTables].filter(
+        (table): table is TableRealtimeStatus => Boolean(table && table.amount > 0),
+      );
+      if (targets.length === 0) return [];
+      return [
+        {
+          tableNo: room.id,
+          displayName: room.name,
+          amount: targets.reduce((sum, table) => sum + table.amount, 0),
+          orderCount: targets.reduce((sum, table) => sum + table.orderCount, 0),
+          elapsedMinutes: Math.max(...targets.map((table) => table.elapsedMinutes), 0),
+        },
+      ];
+    }
+
+    const firstSectionTargets = [legacyBaseTable, sectionTables[0]].filter(
+      (table): table is TableRealtimeStatus => Boolean(table && table.amount > 0),
+    );
+    const secondSectionTargets = [sectionTables[1]].filter(
+      (table): table is TableRealtimeStatus => Boolean(table && table.amount > 0),
+    );
+
+    return [
+      buildRoomSectionStatus(room.tableNos[0], `${room.name} 1`, firstSectionTargets),
+      buildRoomSectionStatus(room.tableNos[1], `${room.name} 2`, secondSectionTargets),
+    ].filter((table): table is TableRealtimeStatus & { displayName: string } => Boolean(table));
+  });
+
+  const extraRooms = tables
+    .filter((table) => table.tableNo.startsWith("r") && table.amount > 0 && !handled.has(table.tableNo))
+    .map((table) => ({
+      ...table,
+      displayName: roomTableName(table.tableNo),
+    }));
+
+  return [...rooms, ...extraRooms].sort((a, b) =>
+    a.tableNo.localeCompare(b.tableNo, "ko", { numeric: true }),
+  );
+}
+
+function buildRoomSectionStatus(
+  tableNo: string,
+  displayName: string,
+  targets: TableRealtimeStatus[],
+) {
+  if (targets.length === 0) return null;
+
+  return {
+    tableNo,
+    displayName,
+    amount: targets.reduce((sum, table) => sum + table.amount, 0),
+    orderCount: targets.reduce((sum, table) => sum + table.orderCount, 0),
+    elapsedMinutes: Math.max(...targets.map((table) => table.elapsedMinutes), 0),
+  };
+}
+
+function roomTableName(tableNo: string) {
+  const [roomId, section] = tableNo.split("-");
+  const roomName = roomNames[roomId] ?? tableNo;
+  return section ? `${roomName}${section}` : roomName;
 }
 
 function ActiveTableGroup({

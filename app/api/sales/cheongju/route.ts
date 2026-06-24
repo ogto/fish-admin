@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 const apiBaseUrl = "https://pos.1472.ai/api/admin/stores/cheongju/sales";
 const orderApiUrl = "https://pos.1472.ai/api/admin/stores/cheongju/orders";
+const roomSplitStateApiUrl = "https://pos.1472.ai/api/admin/stores/cheongju/room-split-state";
 
 type PosDailyEntry = {
   id?: number | string;
@@ -27,6 +28,10 @@ type PosOrder = {
   amount?: number | string;
   dueAmount?: number | string;
   elapsedMinutes?: number | string;
+};
+
+type PosRoomSplitState = {
+  splitRoomIds?: string[];
 };
 
 function numberValue(value: unknown) {
@@ -192,15 +197,19 @@ export async function GET(request: Request) {
   const date = url.searchParams.get("date") ?? dateValue(now);
   const month = url.searchParams.get("month") ?? date.slice(0, 7) ?? monthValue(now);
 
-  const [daily, monthly, orders] = await Promise.all([
+  const [daily, monthly, orders, roomSplitState] = await Promise.all([
     fetchJson(`${apiBaseUrl}/daily?date=${date}`),
     fetchJson(`${apiBaseUrl}/monthly?month=${month}`),
     fetchJson(orderApiUrl),
+    fetchJson(roomSplitStateApiUrl),
   ]);
 
   const entries = Array.isArray(daily?.entries) ? daily.entries as PosDailyEntry[] : [];
   const days = Array.isArray(monthly?.days) ? monthly.days as PosMonthlyDay[] : [];
   const orderRows = Array.isArray(orders) ? orders as PosOrder[] : [];
+  const splitRoomIds = Array.isArray((roomSplitState as PosRoomSplitState)?.splitRoomIds)
+    ? (roomSplitState as PosRoomSplitState).splitRoomIds ?? []
+    : [];
   const split = splitEntries(entries);
   const lunchChart = chartBuckets(entries, 11, 15);
   const dinnerChart = chartBuckets(entries, 17, 23);
@@ -240,6 +249,9 @@ export async function GET(request: Request) {
       cash: monthCashTotal,
       days: monthlyDays,
     },
-    realtime: tableStatuses(orderRows),
+    realtime: {
+      ...tableStatuses(orderRows),
+      splitRoomIds,
+    },
   });
 }
