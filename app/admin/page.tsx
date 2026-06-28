@@ -29,12 +29,14 @@ export type MenuKey =
   | "sales"
   | "stats"
   | "staff"
+  | "reviews"
   | "settings";
 
 const menuItems = [
   { key: "dashboard", label: "대시보드", icon: LayoutDashboard, href: "/admin/dashboard" },
   { key: "purchase", label: "매입관리", icon: PackageCheck, href: "/admin/purchase" },
   { key: "sales", label: "매출관리", icon: ReceiptText, href: "/admin/sales" },
+  { key: "reviews", label: "네이버리뷰[베타]", icon: NaverIcon, href: "/admin/reviews" },
   { key: "staff", label: "직원관리", icon: UsersRound, href: "/admin/staff" },
   { key: "stats", label: "통계", icon: BarChart3, href: "/admin/stats" },
   { key: "settings", label: "설정", icon: Settings, href: "/admin/settings" },
@@ -55,6 +57,9 @@ const pageMeta: Record<MenuKey, { title: string }> = {
   },
   staff: {
     title: "직원관리",
+  },
+  reviews: {
+    title: "네이버리뷰[베타]",
   },
   settings: {
     title: "설정",
@@ -175,6 +180,36 @@ type DailySalesItem = {
   paidAt: string;
   paymentMethod: string;
   amount: number;
+};
+
+type NaverReviewItem = {
+  id: string;
+  author: string;
+  date: string;
+  content: string;
+  link?: string;
+  imageUrl?: string;
+  source: "visitor" | "blog";
+};
+
+type NaverReviewSnapshot = {
+  place: {
+    id: string;
+    name: string;
+    category: string;
+    address: string;
+    imageUrl?: string;
+    naverMapUrl: string;
+  };
+  counts: {
+    visitor: number;
+    blog: number;
+  };
+  visitorReviews: NaverReviewItem[];
+  blogReviews: NaverReviewItem[];
+  fetchedAt: string;
+  partial: boolean;
+  message?: string;
 };
 
 type SalesChartPoint = {
@@ -475,6 +510,39 @@ function useFishSalesSnapshot(date = getTodayInputValue()) {
   };
 }
 
+function useNaverReviews() {
+  const [snapshot, setSnapshot] = useState<NaverReviewSnapshot | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/reviews/naver")
+      .then((response) => {
+        if (!response.ok) throw new Error("review api failed");
+        return response.json() as Promise<NaverReviewSnapshot>;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setSnapshot(data);
+        setErrorMessage("");
+        setIsLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setErrorMessage("리뷰 데이터를 불러오지 못했습니다.");
+        setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return { snapshot, isLoading, errorMessage };
+}
+
 function staffRoleStyle(role: string) {
   if (role === "주방") {
     return {
@@ -561,11 +629,13 @@ export function AdminPageContent({ activeMenu }: { activeMenu: MenuKey }) {
             {activeMenu === "dashboard" && <DashboardContent />}
             {activeMenu === "purchase" && <PurchaseManagement />}
             {activeMenu === "sales" && <SalesManagement />}
+            {activeMenu === "reviews" && <ReviewInspection />}
             {activeMenu === "stats" && <StatsManagement />}
             {activeMenu === "staff" && <StaffManagement />}
             {activeMenu !== "dashboard" &&
               activeMenu !== "purchase" &&
               activeMenu !== "sales" &&
+              activeMenu !== "reviews" &&
               activeMenu !== "stats" &&
               activeMenu !== "staff" && (
               <EmptySection title={activeMeta.title} />
@@ -1334,6 +1404,253 @@ function SalesManagement() {
       ) : (
         <DailySalesView snapshot={snapshot} />
       )}
+    </section>
+  );
+}
+
+function ReviewInspection() {
+  const { snapshot, isLoading, errorMessage } = useNaverReviews();
+
+  if (isLoading) {
+    return <ReviewInspectionSkeleton />;
+  }
+
+  if (!snapshot) {
+    return (
+      <section className="mt-4 rounded-[8px] border border-[var(--line)] bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-black text-[var(--ink)]">네이버리뷰[베타]</h2>
+        <p className="mt-2 text-sm font-bold text-slate-500">
+          {errorMessage || "리뷰 데이터를 확인할 수 없습니다."}
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="mt-4 space-y-4">
+      <div className="overflow-hidden rounded-[8px] border border-[var(--line)] bg-white shadow-sm">
+        <div className="grid gap-4 p-4 md:grid-cols-[1fr_auto] md:items-center md:p-5">
+          <div className="flex min-w-0 gap-4">
+            <div
+              className="h-20 w-20 shrink-0 rounded-[8px] bg-[#f1f6f8] bg-cover bg-center"
+              style={
+                snapshot.place.imageUrl
+                  ? { backgroundImage: `url(${snapshot.place.imageUrl})` }
+                  : undefined
+              }
+              aria-hidden="true"
+            />
+            <div className="min-w-0">
+              <p className="text-sm font-black text-[var(--sea)]">
+                {snapshot.place.category || "네이버 플레이스"}
+              </p>
+              <h2 className="mt-1 truncate text-2xl font-black text-[var(--ink)]">
+                {snapshot.place.name}
+              </h2>
+              <p className="mt-1 text-sm font-bold text-slate-500">
+                {snapshot.place.address}
+              </p>
+              {snapshot.message ? (
+                <p className="mt-2 text-xs font-bold text-[#9a650a]">
+                  {snapshot.message}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <a
+            href={snapshot.place.naverMapUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-11 items-center justify-center rounded-[8px] bg-[var(--sea)] px-4 text-sm font-black !text-white"
+          >
+            네이버 원문
+          </a>
+        </div>
+
+        <div className="grid border-t border-[var(--line)] sm:grid-cols-2">
+          <ReviewCountCard label="방문자 리뷰" value={snapshot.counts.visitor} />
+          <ReviewCountCard label="블로그 리뷰" value={snapshot.counts.blog} />
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <ReviewSection
+          title="방문자 리뷰"
+          count={snapshot.counts.visitor}
+          emptyLink="https://m.place.naver.com/restaurant/2057892767/review/visitor"
+          emptyText="네이버에서 방문자 리뷰 본문 수집을 제한했습니다."
+          reviews={snapshot.visitorReviews}
+        />
+        <ReviewSection
+          title="블로그 리뷰"
+          count={snapshot.counts.blog}
+          emptyLink="https://m.place.naver.com/restaurant/2057892767/review/ugc"
+          emptyText="네이버에서 블로그 리뷰 본문 수집을 제한했습니다."
+          reviews={snapshot.blogReviews}
+        />
+      </div>
+    </section>
+  );
+}
+
+function ReviewCountCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="border-b border-[var(--line)] p-4 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0 md:p-5">
+      <p className="text-sm font-black text-slate-400">{label}</p>
+      <strong className="mt-1 block text-2xl font-black text-[var(--ink)]">
+        {value.toLocaleString("ko-KR")}개
+      </strong>
+    </div>
+  );
+}
+
+function ReviewSection({
+  title,
+  count,
+  reviews,
+  emptyText,
+  emptyLink,
+}: {
+  title: string;
+  count: number;
+  reviews: NaverReviewItem[];
+  emptyText: string;
+  emptyLink: string;
+}) {
+  const visibleStep = 5;
+  const [visibleCount, setVisibleCount] = useState(visibleStep);
+  const visibleReviews = reviews.slice(0, visibleCount);
+  const remainingCount = Math.max(0, reviews.length - visibleCount);
+
+  return (
+    <section className="rounded-[8px] border border-[var(--line)] bg-white p-4 shadow-sm md:p-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-xl font-black text-[var(--ink)]">
+          {title} {count.toLocaleString("ko-KR")}
+        </h2>
+        <a
+          href={emptyLink}
+          target="_blank"
+          rel="noreferrer"
+          className="rounded-[8px] border border-[var(--line)] bg-[#f8fbfc] px-3 py-2 text-xs font-black text-[var(--sea)]"
+        >
+          원문 보기
+        </a>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {reviews.length > 0 ? (
+          <>
+            {visibleReviews.map((review) => (
+              <ReviewCard key={review.id} review={review} />
+            ))}
+            {remainingCount > 0 ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setVisibleCount((current) =>
+                    Math.min(current + visibleStep, reviews.length),
+                  )
+                }
+                className="w-full rounded-[8px] border border-[var(--line)] bg-white px-4 py-3 text-sm font-black text-[var(--sea)] transition hover:border-[var(--sea)] hover:bg-[#f3fbfc]"
+              >
+                더보기 ({remainingCount.toLocaleString("ko-KR")}개 남음)
+              </button>
+            ) : null}
+          </>
+        ) : (
+          <div className="rounded-[8px] border border-dashed border-[var(--line)] bg-[#f8fbfc] p-5">
+            <p className="text-sm font-bold text-slate-500">{emptyText}</p>
+            <a
+              href={emptyLink}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 inline-flex rounded-[8px] bg-[var(--sea)] px-3 py-2 text-xs font-black text-white"
+            >
+              네이버에서 확인
+            </a>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ReviewCard({ review }: { review: NaverReviewItem }) {
+  return (
+    <article className="rounded-[8px] border border-[var(--line)] bg-[#f8fbfc] p-4">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <strong className="text-sm font-black text-[var(--ink)]">
+              {review.author}
+            </strong>
+            {review.date ? (
+              <span className="text-xs font-bold text-slate-400">{review.date}</span>
+            ) : null}
+          </div>
+          <p className="mt-2 line-clamp-4 text-sm font-bold leading-6 text-slate-700">
+            {review.content}
+          </p>
+          {review.source === "blog" && review.link ? (
+            <a
+              href={review.link}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 inline-flex break-all text-xs font-black text-blue-600 underline underline-offset-2 hover:text-blue-700"
+              style={{ color: "#2563eb", textDecoration: "underline" }}
+            >
+              {review.link}
+            </a>
+          ) : null}
+        </div>
+        {review.imageUrl ? (
+          <div
+            className="h-20 w-20 shrink-0 rounded-[8px] bg-slate-100 bg-cover bg-center"
+            style={{ backgroundImage: `url(${review.imageUrl})` }}
+            aria-hidden="true"
+          />
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function ReviewInspectionSkeleton() {
+  return (
+    <section className="mt-4 space-y-4" aria-label="Loading reviews">
+      <div className="rounded-[8px] border border-[var(--line)] bg-white p-4 shadow-sm md:p-5">
+        <div className="flex gap-4">
+          <SkeletonBlock className="h-20 w-20 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <SkeletonBlock className="h-4 w-28" />
+            <SkeletonBlock className="mt-3 h-8 w-56 max-w-full" />
+            <SkeletonBlock className="mt-2 h-4 w-80 max-w-full" />
+          </div>
+        </div>
+      </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        {[0, 1].map((sectionIndex) => (
+          <div
+            key={sectionIndex}
+            className="rounded-[8px] border border-[var(--line)] bg-white p-4 shadow-sm md:p-5"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <SkeletonBlock className="h-7 w-36" />
+              <SkeletonBlock className="h-9 w-20" />
+            </div>
+            <div className="mt-4 space-y-3">
+              {[0, 1, 2].map((cardIndex) => (
+                <div key={cardIndex} className="rounded-[8px] bg-[#f8fbfc] p-4">
+                  <SkeletonBlock className="h-4 w-28" />
+                  <SkeletonBlock className="mt-3 h-4 w-full" />
+                  <SkeletonBlock className="mt-2 h-4 w-10/12" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -2299,5 +2616,16 @@ function NavButton({
       </span>
       <ChevronRight className={`h-4 w-4 ${active ? "text-white" : ""}`} />
     </Link>
+  );
+}
+
+function NaverIcon({ className }: { className?: string }) {
+  return (
+    <span
+      className={`grid h-5 w-5 place-items-center rounded-[4px] bg-[#03c75a] text-[11px] font-black leading-none text-white ${className ?? ""}`}
+      aria-hidden="true"
+    >
+      N
+    </span>
   );
 }
