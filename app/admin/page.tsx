@@ -2604,7 +2604,7 @@ function NavButton({
   return (
     <Link
       href={item.href}
-      className={`flex h-12 w-full items-center justify-between rounded-[8px] px-3 text-left text-sm font-black transition ${
+      className={`flex h-12 w-full items-center justify-between rounded-[8px] px-3 text-left text-base font-black transition ${
         active
           ? "bg-[var(--sea)] text-white shadow-lg shadow-[#126aa1]/16"
           : "text-slate-500 hover:bg-white hover:text-[var(--sea)]"
@@ -2622,7 +2622,7 @@ function NavButton({
 function NaverIcon({ className }: { className?: string }) {
   return (
     <span
-      className={`grid h-5 w-5 place-items-center rounded-[4px] bg-[#03c75a] text-[11px] font-black leading-none text-white ${className ?? ""}`}
+      className={`grid h-5 w-5 place-items-center rounded-[4px] bg-[#03c75a] text-xs font-black leading-none text-white ${className ?? ""}`}
       aria-hidden="true"
     >
       N
