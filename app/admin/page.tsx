@@ -159,6 +159,8 @@ type MonthSalesDay = {
   dinner: number;
   card: number;
   cash: number;
+  hall: number;
+  takeout: number;
 };
 
 type SalesCalendarCell = {
@@ -192,6 +194,8 @@ type SalesSnapshot = {
     total: number;
     card: number;
     cash: number;
+    hallTotal: number;
+    takeoutTotal: number;
     paymentCount: number;
     lunchTotal: number;
     dinnerTotal: number;
@@ -211,6 +215,12 @@ type SalesSnapshot = {
     splitRoomIds: string[];
     tables: TableRealtimeStatus[];
   };
+};
+
+type SalesSnapshotState = {
+  snapshot: SalesSnapshot;
+  isLive: boolean;
+  loadedDate: string | null;
 };
 
 type TableRealtimeStatus = {
@@ -272,20 +282,20 @@ const purchaseItems: PurchaseItem[] = [
 ];
 
 const monthSalesDays: MonthSalesDay[] = [
-  { day: 1, total: 772000, lunch: 286000, dinner: 486000, card: 606000, cash: 166000 },
-  { day: 2, total: 745000, lunch: 312000, dinner: 433000, card: 637000, cash: 108000 },
-  { day: 3, total: 1532400, lunch: 524000, dinner: 1008400, card: 1299000, cash: 233400 },
-  { day: 4, total: 695200, lunch: 251000, dinner: 444200, card: 518200, cash: 177000 },
-  { day: 5, total: 1177400, lunch: 407000, dinner: 770400, card: 958600, cash: 218800 },
-  { day: 6, total: 1871800, lunch: 642000, dinner: 1229800, card: 1339600, cash: 532200 },
-  { day: 7, total: 933400, lunch: 338000, dinner: 595400, card: 724400, cash: 209000 },
-  { day: 8, total: 478800, lunch: 166000, dinner: 312800, card: 338800, cash: 140000 },
-  { day: 9, total: 605600, lunch: 224000, dinner: 381600, card: 416800, cash: 188800 },
-  { day: 10, total: 931700, lunch: 318000, dinner: 613700, card: 728600, cash: 203100 },
-  { day: 11, total: 1076600, lunch: 394000, dinner: 682600, card: 646000, cash: 430600 },
-  { day: 12, total: 926600, lunch: 329000, dinner: 597600, card: 785600, cash: 141000 },
-  { day: 13, total: 1903800, lunch: 616000, dinner: 1287800, card: 1613400, cash: 290400 },
-  { day: 14, total: 943800, lunch: 348000, dinner: 595800, card: 673800, cash: 270000 },
+  { day: 1, total: 772000, lunch: 286000, dinner: 486000, card: 606000, cash: 166000, hall: 772000, takeout: 0 },
+  { day: 2, total: 745000, lunch: 312000, dinner: 433000, card: 637000, cash: 108000, hall: 745000, takeout: 0 },
+  { day: 3, total: 1532400, lunch: 524000, dinner: 1008400, card: 1299000, cash: 233400, hall: 1532400, takeout: 0 },
+  { day: 4, total: 695200, lunch: 251000, dinner: 444200, card: 518200, cash: 177000, hall: 695200, takeout: 0 },
+  { day: 5, total: 1177400, lunch: 407000, dinner: 770400, card: 958600, cash: 218800, hall: 1177400, takeout: 0 },
+  { day: 6, total: 1871800, lunch: 642000, dinner: 1229800, card: 1339600, cash: 532200, hall: 1871800, takeout: 0 },
+  { day: 7, total: 933400, lunch: 338000, dinner: 595400, card: 724400, cash: 209000, hall: 933400, takeout: 0 },
+  { day: 8, total: 478800, lunch: 166000, dinner: 312800, card: 338800, cash: 140000, hall: 478800, takeout: 0 },
+  { day: 9, total: 605600, lunch: 224000, dinner: 381600, card: 416800, cash: 188800, hall: 605600, takeout: 0 },
+  { day: 10, total: 931700, lunch: 318000, dinner: 613700, card: 728600, cash: 203100, hall: 931700, takeout: 0 },
+  { day: 11, total: 1076600, lunch: 394000, dinner: 682600, card: 646000, cash: 430600, hall: 1076600, takeout: 0 },
+  { day: 12, total: 926600, lunch: 329000, dinner: 597600, card: 785600, cash: 141000, hall: 926600, takeout: 0 },
+  { day: 13, total: 1903800, lunch: 616000, dinner: 1287800, card: 1613400, cash: 290400, hall: 1903800, takeout: 0 },
+  { day: 14, total: 943800, lunch: 348000, dinner: 595800, card: 673800, cash: 270000, hall: 943800, takeout: 0 },
 ];
 
 const dailySalesItems: DailySalesItem[] = [
@@ -324,6 +334,8 @@ const fallbackSalesSnapshot: SalesSnapshot = {
     total: dailySalesItems.reduce((sum, row) => sum + row.amount, 0),
     card: 288000,
     cash: 54000,
+    hallTotal: dailySalesItems.reduce((sum, row) => sum + row.amount, 0),
+    takeoutTotal: 0,
     paymentCount: dailySalesItems.length,
     lunchTotal: 2184000,
     dinnerTotal: 4736000,
@@ -379,6 +391,8 @@ function buildSalesMonthCells(year: number, month: number, days: MonthSalesDay[]
         dinner: 0,
         card: 0,
         cash: 0,
+        hall: 0,
+        takeout: 0,
       },
     });
   }
@@ -417,8 +431,11 @@ function parseDateInput(value: string) {
 }
 
 function useFishSalesSnapshot(date = getTodayInputValue()) {
-  const [snapshot, setSnapshot] = useState<SalesSnapshot>(fallbackSalesSnapshot);
-  const [isLive, setIsLive] = useState(false);
+  const [salesState, setSalesState] = useState<SalesSnapshotState>({
+    snapshot: fallbackSalesSnapshot,
+    isLive: false,
+    loadedDate: null,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -431,13 +448,19 @@ function useFishSalesSnapshot(date = getTodayInputValue()) {
       })
       .then((data) => {
         if (cancelled) return;
-        setSnapshot(data);
-        setIsLive(true);
+        setSalesState({
+          snapshot: data,
+          isLive: true,
+          loadedDate: date,
+        });
       })
       .catch(() => {
         if (cancelled) return;
-        setSnapshot(fallbackSalesSnapshot);
-        setIsLive(false);
+        setSalesState({
+          snapshot: fallbackSalesSnapshot,
+          isLive: false,
+          loadedDate: date,
+        });
       });
 
     return () => {
@@ -445,7 +468,11 @@ function useFishSalesSnapshot(date = getTodayInputValue()) {
     };
   }, [date]);
 
-  return { snapshot, isLive };
+  return {
+    snapshot: salesState.snapshot,
+    isLive: salesState.isLive,
+    isLoading: salesState.loadedDate !== date,
+  };
 }
 
 function staffRoleStyle(role: string) {
@@ -581,7 +608,11 @@ export default function AdminPage() {
 }
 
 function DashboardContent() {
-  const { snapshot, isLive } = useFishSalesSnapshot();
+  const { snapshot, isLive, isLoading } = useFishSalesSnapshot();
+
+  if (isLoading) {
+    return <DashboardSkeleton />;
+  }
 
   return (
     <section className="mt-4 space-y-4">
@@ -618,6 +649,287 @@ function DashboardContent() {
         </div>
       </div>
       <LiveFloorBoard snapshot={snapshot} />
+    </section>
+  );
+}
+
+function SkeletonBlock({
+  className,
+  style,
+}: {
+  className: string;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <div
+      className={`animate-pulse rounded-[8px] bg-slate-200/80 ${className}`}
+      style={style}
+      aria-hidden="true"
+    />
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <section className="mt-4 space-y-4" aria-label="Loading dashboard">
+      <div className="rounded-[8px] border border-[var(--line)] bg-white p-4 shadow-sm">
+        <SkeletonBlock className="h-4 w-24" />
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <SkeletonBlock className="h-8 w-full max-w-[360px]" />
+          <SkeletonBlock className="h-7 w-24 rounded-full" />
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
+        <article className="rounded-[8px] border border-[var(--line)] bg-white p-4 shadow-sm md:p-5">
+          <div className="flex items-center justify-between gap-3">
+            <SkeletonBlock className="h-6 w-32" />
+            <SkeletonBlock className="h-7 w-14 rounded-full" />
+          </div>
+          <div className="mt-4 flex gap-3">
+            <SkeletonBlock className="h-2 w-16" />
+            <SkeletonBlock className="h-2 w-16" />
+          </div>
+          <div className="mt-5 space-y-3">
+            <SkeletonBlock className="h-12 w-full" />
+            <SkeletonBlock className="h-12 w-full" />
+          </div>
+        </article>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          {[0, 1].map((chartIndex) => (
+            <article
+              key={chartIndex}
+              className="rounded-[8px] border border-[var(--line)] bg-white p-4 shadow-sm md:p-5"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <SkeletonBlock className="h-6 w-24" />
+                <SkeletonBlock className="h-6 w-32" />
+              </div>
+              <div className="mt-5 grid h-[230px] grid-cols-6 items-end gap-3 rounded-[8px] bg-[#f8fbfc] p-4">
+                {[42, 78, 66, 90, 56, 34].map((height, barIndex) => (
+                  <div key={barIndex} className="flex h-full flex-col justify-end gap-2">
+                    <SkeletonBlock className="w-full" style={{ height: `${height}%` }} />
+                    <SkeletonBlock className="h-3 w-full" />
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 rounded-[8px] border border-[var(--line)] bg-[#f8fbfc] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <SkeletonBlock className="h-4 w-24" />
+                  <SkeletonBlock className="h-4 w-20" />
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <SkeletonBlock className="h-8 w-full" />
+                  <SkeletonBlock className="h-8 w-full" />
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+
+      <section className="rounded-[8px] border border-[var(--line)] bg-white p-4 shadow-sm md:p-5">
+        <div className="flex flex-col gap-3 border-b border-[var(--line)] bg-white p-4 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-2">
+            <SkeletonBlock className="h-6 w-64 max-w-full" />
+            <SkeletonBlock className="h-4 w-80 max-w-full" />
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:flex">
+            <SkeletonBlock className="h-10 w-24" />
+            <SkeletonBlock className="h-10 w-32" />
+          </div>
+        </div>
+        <div className="mt-4 grid gap-4 xl:grid-cols-2">
+          {[0, 1].map((groupIndex) => (
+            <div
+              key={groupIndex}
+              className="rounded-[8px] border border-[var(--line)] bg-[#f8fbfc] p-4"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <SkeletonBlock className="h-5 w-16" />
+                <SkeletonBlock className="h-6 w-14 rounded-full" />
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {[0, 1, 2, 3].map((cardIndex) => (
+                  <div
+                    key={cardIndex}
+                    className="rounded-[8px] border border-[var(--line)] bg-white p-4 shadow-sm"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <SkeletonBlock className="h-6 w-20" />
+                      <SkeletonBlock className="h-6 w-12 rounded-full" />
+                    </div>
+                    <SkeletonBlock className="mt-4 h-7 w-32" />
+                    <SkeletonBlock className="mt-2 h-3 w-16" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    </section>
+  );
+}
+
+function SalesManagementSkeleton({ mode }: { mode: SalesMode }) {
+  if (mode === "daily") {
+    return (
+      <div className="overflow-hidden rounded-[8px] border border-[var(--line)] bg-white shadow-sm">
+        <div className="border-b border-[var(--line)] p-4 md:p-5">
+          <div className="flex items-center justify-between gap-3">
+            <SkeletonBlock className="h-7 w-32" />
+            <SkeletonBlock className="h-7 w-28 rounded-full" />
+          </div>
+        </div>
+        <div className="grid gap-4 p-4 sm:grid-cols-2 xl:grid-cols-6 md:p-5">
+          {[0, 1, 2, 3, 4, 5].map((index) => (
+            <div key={index} className="rounded-[8px] border border-[var(--line)] bg-[#f8fbfc] p-4">
+              <SkeletonBlock className="h-4 w-24" />
+              <SkeletonBlock className="mt-3 h-8 w-36" />
+            </div>
+          ))}
+        </div>
+        <div className="px-4 pb-4 md:px-5 md:pb-5">
+          <div className="overflow-hidden rounded-[8px] border border-[var(--line)]">
+            {[0, 1, 2, 3, 4].map((index) => (
+              <div
+                key={index}
+                className="grid grid-cols-[1fr_120px_140px] gap-3 border-b border-[var(--line)] px-4 py-4 last:border-b-0"
+              >
+                <SkeletonBlock className="h-5 w-36" />
+                <SkeletonBlock className="h-5 w-20" />
+                <SkeletonBlock className="h-5 w-full" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-[8px] border border-[var(--line)] bg-white p-4 shadow-sm md:p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
+          <SkeletonBlock className="h-10 w-44" />
+          <div className="flex items-center gap-2">
+            <SkeletonBlock className="h-10 w-10" />
+            <SkeletonBlock className="h-10 w-10" />
+          </div>
+        </div>
+        <SkeletonBlock className="h-7 w-24 rounded-full" />
+      </div>
+
+      <div className="mt-5 grid gap-3 border-b border-[var(--line)] pb-5 sm:grid-cols-2 xl:grid-cols-4">
+        {[0, 1, 2, 3].map((index) => (
+          <div key={index} className="rounded-[8px] border border-[var(--line)] bg-[#f8fbfc] p-4">
+            <SkeletonBlock className="h-4 w-20" />
+            <SkeletonBlock className="mt-3 h-7 w-28" />
+          </div>
+        ))}
+      </div>
+      <div className="mt-5 grid gap-3 border-b border-[var(--line)] pb-5 sm:grid-cols-2">
+        {[0, 1].map((index) => (
+          <div key={index} className="rounded-[8px] border border-[var(--line)] bg-[#f8fbfc] p-4">
+            <SkeletonBlock className="h-4 w-20" />
+            <SkeletonBlock className="mt-3 h-7 w-32" />
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-5 grid grid-cols-7 gap-2 text-center">
+        {[0, 1, 2, 3, 4, 5, 6].map((index) => (
+          <SkeletonBlock key={index} className="mx-auto h-3 w-8" />
+        ))}
+      </div>
+      <div className="mt-2 grid gap-2 md:grid-cols-7">
+        {Array.from({ length: 35 }, (_, index) => (
+          <div key={index} className="min-h-36 rounded-[8px] border border-[var(--line)] bg-[#f8fbfc] p-3">
+            <SkeletonBlock className="h-5 w-8" />
+            <div className="mt-5 space-y-2">
+              <SkeletonBlock className="h-3 w-full" />
+              <SkeletonBlock className="h-3 w-11/12" />
+              <SkeletonBlock className="h-3 w-9/12" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StatsManagementSkeleton() {
+  return (
+    <section className="mt-4 space-y-4" aria-label="Loading stats">
+      <div className="rounded-[8px] border border-[var(--line)] bg-white p-4 shadow-sm md:p-5">
+        <div className="grid gap-4 lg:grid-cols-[1fr_320px] lg:items-center">
+          <div>
+            <SkeletonBlock className="h-4 w-56" />
+            <SkeletonBlock className="mt-3 h-10 w-72 max-w-full" />
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <SkeletonBlock className="h-7 w-28 rounded-full" />
+              <SkeletonBlock className="h-7 w-28 rounded-full" />
+              <SkeletonBlock className="h-7 w-20 rounded-full" />
+            </div>
+          </div>
+          <div className="rounded-[8px] bg-[#f8fbfc] p-4">
+            <SkeletonBlock className="h-4 w-20" />
+            <SkeletonBlock className="mt-3 h-6 w-full" />
+            <SkeletonBlock className="mt-2 h-6 w-10/12" />
+            <SkeletonBlock className="mt-3 h-4 w-full" />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
+        <div className="overflow-hidden rounded-[8px] border border-[var(--line)] bg-white shadow-sm">
+          <div className="border-b border-[var(--line)] px-4 py-3">
+            <SkeletonBlock className="h-6 w-36" />
+          </div>
+          <div className="p-4">
+            <div className="overflow-hidden rounded-[8px] border border-[var(--line)]">
+              {[0, 1, 2, 3, 4, 5].map((index) => (
+                <div
+                  key={index}
+                  className="grid grid-cols-[1fr_100px_120px_120px] gap-3 border-b border-[var(--line)] px-4 py-4 last:border-b-0"
+                >
+                  <SkeletonBlock className="h-5 w-28" />
+                  <SkeletonBlock className="h-5 w-16" />
+                  <SkeletonBlock className="h-5 w-full" />
+                  <SkeletonBlock className="h-5 w-full" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-[8px] border border-[var(--line)] bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <SkeletonBlock className="h-6 w-32" />
+              <SkeletonBlock className="mt-2 h-4 w-40" />
+            </div>
+            <SkeletonBlock className="h-9 w-16" />
+          </div>
+          <div className="mt-4 overflow-hidden rounded-[8px] border border-[var(--line)]">
+            {[0, 1].map((index) => (
+              <div
+                key={index}
+                className="grid grid-cols-[120px_1fr] gap-3 border-b border-[var(--line)] px-3 py-3 last:border-b-0"
+              >
+                <SkeletonBlock className="h-5 w-20" />
+                <SkeletonBlock className="h-5 w-full" />
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 rounded-[8px] bg-[#f8fbfc] p-4">
+            <SkeletonBlock className="h-4 w-20" />
+            <SkeletonBlock className="mt-3 h-8 w-36" />
+          </div>
+        </div>
+      </div>
     </section>
   );
 }
@@ -967,7 +1279,7 @@ function PurchaseManagement() {
 function SalesManagement() {
   const [mode, setMode] = useState<SalesMode>("month");
   const [selectedDate, setSelectedDate] = useState(getTodayInputValue());
-  const { snapshot } = useFishSalesSnapshot(selectedDate);
+  const { snapshot, isLoading } = useFishSalesSnapshot(selectedDate);
 
   return (
     <section className="mt-4 space-y-4">
@@ -1009,7 +1321,9 @@ function SalesManagement() {
         </div>
       ) : null}
 
-      {mode === "month" ? (
+      {isLoading ? (
+        <SalesManagementSkeleton mode={mode} />
+      ) : mode === "month" ? (
         <MonthlySalesView
           month={snapshot.month}
           days={snapshot.monthly.days}
@@ -1061,7 +1375,12 @@ function StaffManagement() {
 function StatsManagement() {
   const [isEditingCosts, setIsEditingCosts] = useState(false);
   const [managementFee, setManagementFee] = useState(730000);
-  const { snapshot, isLive } = useFishSalesSnapshot();
+  const { snapshot, isLive, isLoading } = useFishSalesSnapshot();
+
+  if (isLoading) {
+    return <StatsManagementSkeleton />;
+  }
+
   const totalSales = snapshot.monthly.total;
   const totalPurchase = purchaseItems.reduce((sum, item) => sum + item.amount, 0);
   const totalSalary = staffMembers.reduce((sum, staff) => sum + staff.salary, 0);
@@ -1344,6 +1663,8 @@ function MonthlySalesView({
   const today = parseDateInput(getTodayInputValue());
   const calendarCells = buildSalesMonthCells(year, monthNumber, days);
   const monthCells = calendarCells.filter((cell) => cell.day != null);
+  const hallTotal = days.reduce((sum, day) => sum + day.hall, 0);
+  const takeoutTotal = days.reduce((sum, day) => sum + day.takeout, 0);
   const isTodayCell = (cell: SalesCalendarCell) =>
     cell.day === today.day && monthNumber === today.month && year === today.year;
 
@@ -1376,6 +1697,10 @@ function MonthlySalesView({
           label="일평균"
           value={formatMoney(Math.round(total / Math.max(days.length, 1)))}
         />
+      </div>
+      <div className="mt-5 grid gap-3 border-b border-[var(--line)] pb-5 sm:grid-cols-2">
+        <SummaryStat label="홀 매출" value={formatMoney(hallTotal)} />
+        <SummaryStat label="포장 매출" value={formatMoney(takeoutTotal)} />
       </div>
 
       <div className="mt-5 space-y-2 md:hidden">
@@ -1413,6 +1738,16 @@ function MonthlySalesView({
               <p className="text-sm font-black text-[var(--sea)]">
                 {formatMoney(cell.data?.total ?? 0)}
               </p>
+              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs font-black">
+                <span className="text-slate-400">홀</span>
+                <span className="text-slate-700">
+                  {formatMoney(cell.data?.hall ?? 0)}
+                </span>
+                <span className="text-slate-400">포장</span>
+                <span className="text-[#d89a2b]">
+                  {formatMoney(cell.data?.takeout ?? 0)}
+                </span>
+              </div>
             </div>
           </button>
         ))}
@@ -1466,6 +1801,9 @@ function MonthlySalesView({
                   <AmountRow label="총매출" value={cell.data?.total ?? 0} tone="sea" />
                   <AmountRow label="카드" value={cell.data?.card ?? 0} tone="muted" />
                   <AmountRow label="현금" value={cell.data?.cash ?? 0} tone="mustard" />
+                  <div className="my-2 border-t border-[var(--line)]" />
+                  <AmountRow label="홀" value={cell.data?.hall ?? 0} tone="muted" />
+                  <AmountRow label="포장" value={cell.data?.takeout ?? 0} tone="mustard" />
                 </dl>
               </button>
             )
@@ -1531,6 +1869,8 @@ function SalesDayDetailModal({
             <DetailAmount label="총매출" value={data.total} tone="sea" />
             <DetailAmount label="카드" value={data.card} tone="muted" />
             <DetailAmount label="현금" value={data.cash} tone="mustard" />
+            <DetailAmount label="홀 매출" value={data.hall} tone="muted" />
+            <DetailAmount label="포장 매출" value={data.takeout} tone="mustard" />
           </div>
           <div className="border-t border-[var(--line)] pt-4">
             <div className="grid gap-3 sm:grid-cols-2">
@@ -1553,6 +1893,8 @@ function DailySalesView({ snapshot }: { snapshot: SalesSnapshot }) {
           ["결제 건수", `${snapshot.daily.paymentCount.toLocaleString()}건`],
           ["카드", formatMoney(snapshot.daily.card)],
           ["현금", formatMoney(snapshot.daily.cash)],
+          ["홀 매출", formatMoney(snapshot.daily.hallTotal)],
+          ["포장 매출", formatMoney(snapshot.daily.takeoutTotal)],
         ]}
       />
 
@@ -1590,7 +1932,7 @@ function DailySalesView({ snapshot }: { snapshot: SalesSnapshot }) {
 
 function SalesSummaryGrid({ items }: { items: Array<[string, string]> }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
       {items.map(([label, value]) => (
         <article
           key={label}

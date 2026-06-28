@@ -45,6 +45,13 @@ function signedEntryAmount(entry: PosDailyEntry) {
   return `${entry.kind ?? ""}`.includes("CANCEL") ? -amount : amount;
 }
 
+function isTakeoutEntry(entry: PosDailyEntry) {
+  return (
+    `${entry.tableNo ?? ""}`.toUpperCase() === "TAKEOUT" ||
+    `${entry.orderNo ?? ""}`.toUpperCase().includes("TAKEOUT")
+  );
+}
+
 function parsePosDateTime(value?: string) {
   if (!value) return null;
   const normalized = value.replaceAll(".", "-").replace(" ", "T");
@@ -95,6 +102,11 @@ function splitEntries(entries: PosDailyEntry[]) {
     (sum, entry) => {
       const amount = signedEntryAmount(entry);
       const method = `${entry.method ?? ""}`.toUpperCase();
+      if (isTakeoutEntry(entry)) {
+        sum.takeout += amount;
+      } else {
+        sum.hall += amount;
+      }
       if (method === "CASH") {
         sum.cash += amount;
       } else {
@@ -102,7 +114,7 @@ function splitEntries(entries: PosDailyEntry[]) {
       }
       return sum;
     },
-    { card: 0, cash: 0 },
+    { card: 0, cash: 0, hall: 0, takeout: 0 },
   );
 }
 
@@ -170,6 +182,10 @@ function dateValue(date: Date) {
   return `${monthValue(date)}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function dateFromMonthDay(month: string, day: number) {
+  return `${month}-${String(day).padStart(2, "0")}`;
+}
+
 async function fetchJson(url: string) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
@@ -215,14 +231,48 @@ export async function GET(request: Request) {
   const dinnerChart = chartBuckets(entries, 17, 23);
   const lunchTotal = lunchChart.reduce((sum, item) => sum + item.rawAmount, 0);
   const dinnerTotal = dinnerChart.reduce((sum, item) => sum + item.rawAmount, 0);
-  const monthlyDays = days.map((day) => ({
-    day: dayNumber(day.date),
-    total: numberValue(day.netAmount),
-    lunch: 0,
-    dinner: 0,
-    card: numberValue(day.card),
-    cash: numberValue(day.cash),
-  }));
+  const monthlyBreakdowns = await Promise.all(
+    days.map(async (day) => {
+      const dayNo = dayNumber(day.date);
+      const dayDate = day.date ?? dateFromMonthDay(month, dayNo);
+      const total = numberValue(day.netAmount);
+
+      if (dayDate === date) {
+        return [dayNo, split] as const;
+      }
+
+      if (total <= 0) {
+        return [dayNo, { hall: 0, takeout: 0, card: 0, cash: 0 }] as const;
+      }
+
+      try {
+        const dailyBreakdown = await fetchJson(`${apiBaseUrl}/daily?date=${dayDate}`);
+        const dailyEntries = Array.isArray(dailyBreakdown?.entries)
+          ? dailyBreakdown.entries as PosDailyEntry[]
+          : [];
+
+        return [dayNo, splitEntries(dailyEntries)] as const;
+      } catch {
+        return [dayNo, { hall: total, takeout: 0, card: 0, cash: 0 }] as const;
+      }
+    }),
+  );
+  const monthlyBreakdownByDay = new Map(monthlyBreakdowns);
+  const monthlyDays = days.map((day) => {
+    const dayNo = dayNumber(day.date);
+    const breakdown = monthlyBreakdownByDay.get(dayNo);
+
+    return {
+      day: dayNo,
+      total: numberValue(day.netAmount),
+      lunch: 0,
+      dinner: 0,
+      card: numberValue(day.card),
+      cash: numberValue(day.cash),
+      hall: Math.max(0, breakdown?.hall ?? numberValue(day.netAmount)),
+      takeout: Math.max(0, breakdown?.takeout ?? 0),
+    };
+  });
   const monthTotal = monthlyDays.reduce((sum, day) => sum + day.total, 0);
   const monthCardTotal = monthlyDays.reduce((sum, day) => sum + day.card, 0);
   const monthCashTotal = monthlyDays.reduce((sum, day) => sum + day.cash, 0);
@@ -236,6 +286,8 @@ export async function GET(request: Request) {
       total: Math.max(0, split.card + split.cash),
       card: Math.max(0, split.card),
       cash: Math.max(0, split.cash),
+      hallTotal: Math.max(0, split.hall),
+      takeoutTotal: Math.max(0, split.takeout),
       paymentCount: numberValue(daily?.summary?.paymentCount),
       lunchTotal,
       dinnerTotal,
