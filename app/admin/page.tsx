@@ -255,7 +255,7 @@ type SalesSnapshot = {
 type SalesSnapshotState = {
   snapshot: SalesSnapshot;
   isLive: boolean;
-  loadedDate: string | null;
+  loadedKey: string | null;
 };
 
 type TableRealtimeStatus = {
@@ -448,6 +448,20 @@ function getTodayInputValue() {
   return `${year}-${month}-${day}`;
 }
 
+function monthValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+
+  return `${year}-${month}`;
+}
+
+function addMonths(month: string, amount: number) {
+  const { year, month: monthNumber } = parseMonth(month);
+  const date = new Date(year, monthNumber - 1 + amount, 1);
+
+  return monthValue(date);
+}
+
 function parseMonth(value: string) {
   const [year, month] = value.split("-").map(Number);
   return {
@@ -465,16 +479,19 @@ function parseDateInput(value: string) {
   };
 }
 
-function useFishSalesSnapshot(date = getTodayInputValue()) {
+function useFishSalesSnapshot(
+  date = getTodayInputValue(),
+  month = date.slice(0, 7),
+) {
   const [salesState, setSalesState] = useState<SalesSnapshotState>({
     snapshot: fallbackSalesSnapshot,
     isLive: false,
-    loadedDate: null,
+    loadedKey: null,
   });
 
   useEffect(() => {
     let cancelled = false;
-    const month = date.slice(0, 7);
+    const loadedKey = `${date}:${month}`;
 
     fetch(`/api/sales/cheongju?date=${date}&month=${month}`)
       .then((response) => {
@@ -486,7 +503,7 @@ function useFishSalesSnapshot(date = getTodayInputValue()) {
         setSalesState({
           snapshot: data,
           isLive: true,
-          loadedDate: date,
+          loadedKey,
         });
       })
       .catch(() => {
@@ -494,19 +511,19 @@ function useFishSalesSnapshot(date = getTodayInputValue()) {
         setSalesState({
           snapshot: fallbackSalesSnapshot,
           isLive: false,
-          loadedDate: date,
+          loadedKey,
         });
       });
 
     return () => {
       cancelled = true;
     };
-  }, [date]);
+  }, [date, month]);
 
   return {
     snapshot: salesState.snapshot,
     isLive: salesState.isLive,
-    isLoading: salesState.loadedDate !== date,
+    isLoading: salesState.loadedKey !== `${date}:${month}`,
   };
 }
 
@@ -1349,7 +1366,13 @@ function PurchaseManagement() {
 function SalesManagement() {
   const [mode, setMode] = useState<SalesMode>("month");
   const [selectedDate, setSelectedDate] = useState(getTodayInputValue());
-  const { snapshot, isLoading } = useFishSalesSnapshot(selectedDate);
+  const [selectedMonth, setSelectedMonth] = useState(() =>
+    getTodayInputValue().slice(0, 7),
+  );
+  const { snapshot, isLoading } = useFishSalesSnapshot(
+    selectedDate,
+    selectedMonth,
+  );
 
   return (
     <section className="mt-4 space-y-4">
@@ -1400,6 +1423,12 @@ function SalesManagement() {
           total={snapshot.monthly.total}
           cardTotal={snapshot.monthly.card}
           cashTotal={snapshot.monthly.cash}
+          onPreviousMonth={() =>
+            setSelectedMonth((current) => addMonths(current, -1))
+          }
+          onNextMonth={() =>
+            setSelectedMonth((current) => addMonths(current, 1))
+          }
         />
       ) : (
         <DailySalesView snapshot={snapshot} />
@@ -1966,12 +1995,16 @@ function MonthlySalesView({
   total,
   cardTotal,
   cashTotal,
+  onPreviousMonth,
+  onNextMonth,
 }: {
   month: string;
   days: MonthSalesDay[];
   total: number;
   cardTotal: number;
   cashTotal: number;
+  onPreviousMonth: () => void;
+  onNextMonth: () => void;
 }) {
   const [selectedCell, setSelectedCell] = useState<SalesCalendarCell | null>(
     null
@@ -1993,10 +2026,20 @@ function MonthlySalesView({
             {year}년 {monthNumber}월
           </h2>
           <div className="flex items-center gap-2">
-            <button className="grid h-10 w-10 place-items-center rounded-[8px] bg-[#f1f6f8] text-xl font-black text-slate-400">
+            <button
+              type="button"
+              onClick={onPreviousMonth}
+              aria-label="이전 달"
+              className="grid h-10 w-10 place-items-center rounded-[8px] bg-[#f1f6f8] text-xl font-black text-slate-400 transition hover:bg-[#e8f1f4] hover:text-[var(--sea)]"
+            >
               ‹
             </button>
-            <button className="grid h-10 w-10 place-items-center rounded-[8px] bg-[#f1f6f8] text-xl font-black text-slate-400">
+            <button
+              type="button"
+              onClick={onNextMonth}
+              aria-label="다음 달"
+              className="grid h-10 w-10 place-items-center rounded-[8px] bg-[#f1f6f8] text-xl font-black text-slate-400 transition hover:bg-[#e8f1f4] hover:text-[var(--sea)]"
+            >
               ›
             </button>
           </div>
